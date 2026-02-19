@@ -2,7 +2,11 @@ from django.shortcuts import render
 import random
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
+from rest_framework import status
 from .models import Game, Guess, Word
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.contrib.auth import authenticate
+from django.contrib.auth.models import User
 
 # Create your views here.
 WORD_LIST = ["APPLE", "GRAPE", "MANGO", "BERRY", "LEMON"]
@@ -10,15 +14,19 @@ WORD_LIST = ["APPLE", "GRAPE", "MANGO", "BERRY", "LEMON"]
 
 @api_view(["POST"])
 def start_game(request):
-    words = Word.objects.filter(is_active=True)
+    words_qs = Word.objects.filter(is_active=True)
+    count = words_qs.count()
 
-    if not words.exists():
+    if count == 0:
         return Response(
-            {"error": "No words available in database"},
+            {"error": "No words available in the database"},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    target_word = words.order_by("?").first().text.lower()
+    # Fast random selection
+    import random
+    random_index = random.randint(0, count - 1)
+    target_word = words_qs[random_index].text.upper()
 
     game = Game.objects.create(
         target_word=target_word,
@@ -69,19 +77,21 @@ def submit_guess(request):
     if game.status != "ongoing":
         return Response({"error": "Game already finished"}, status=400)
 
-    guess_word = guess_word.upper()
+    # convert both to lowercase for accurate comparison
+    guess_word_lower = guess_word.lower()
+    target_word_lower = game.target_word.lower()
 
-    feedback = generate_feedback(guess_word, game.target_word)
+    feedback = generate_feedback(guess_word_lower, target_word_lower)
 
     Guess.objects.create(
         game=game,
-        guess_word=guess_word,
+        guess_word=guess_word_lower,
         feedback=feedback
     )
 
     game.attempts_remaining -= 1
 
-    if guess_word == game.target_word:
+    if guess_word_lower == target_word_lower:
         game.status = "won"
     elif game.attempts_remaining == 0:
         game.status = "lost"
@@ -117,3 +127,35 @@ def game_status(request, game_id):
         "status": game.status,
         "guesses": guess_data
     })
+    
+# Register new user
+@api_view(["POST"])
+def register_user(request):
+    username = request.data.get("username")
+    password = request.data.get("password")
+
+    if not username or not password:
+        return Response({"error": "Username and password required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    if User.objects.filter(username=username).exists():
+        return Response({"error": "Username already exists"}, status=status.HTTP_400_BAD_REQUEST)
+
+    user = User.objects.create_user(username=username, password=password)
+
+    return Response({"message": "User created successfully"}, status=status.HTTP_201_CREATED)
+
+# Login existing user
+@api_view(["POST"])
+def login_user(request):
+    username = request.data.get("username")
+    password = request.data.get("password")
+
+    user = authenticate(username=username, password=password)
+    if user is None:
+        return Response({"error": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED)
+
+    refresh = RefreshToken.for_user(user)
+    return Response({
+        "refresh": str(refresh),
+        "access": str(refresh.access_token)
+    }, status=status.HTTP_200_OK)
