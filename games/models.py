@@ -27,3 +27,10 @@ class Guess(models.Model):
 
     def __str__(self):
         return f"Guess {self.guess_word} for Game {self.game.id}"
+
+class Word(models.Model):
+    text = models.CharField(max_length=5, unique=True, db_index=True)
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return self.text

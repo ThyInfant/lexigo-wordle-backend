@@ -2,7 +2,7 @@ from django.shortcuts import render
 import random
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from .models import Game, Guess
+from .models import Game, Guess, word
 
 # Create your views here.
 WORD_LIST = ["APPLE", "GRAPE", "MANGO", "BERRY", "LEMON"]
@@ -10,7 +10,15 @@ WORD_LIST = ["APPLE", "GRAPE", "MANGO", "BERRY", "LEMON"]
 
 @api_view(["POST"])
 def start_game(request):
-    target_word = random.choice(WORD_LIST)
+    words = Word.objects.filter(is_active=True)
+
+    if not words.exists():
+        return Response(
+            {"error": "No words available in database"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    target_word = words.order_by("?").first().text.lower()
 
     game = Game.objects.create(
         target_word=target_word,
@@ -22,7 +30,7 @@ def start_game(request):
         "game_id": game.id,
         "attempts_remaining": game.attempts_remaining,
         "status": game.status
-    })
+    }, status=status.HTTP_201_CREATED)
     
 def generate_feedback(guess, target):
     feedback = []
